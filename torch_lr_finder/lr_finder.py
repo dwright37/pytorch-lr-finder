@@ -40,10 +40,9 @@ class LRFinder(object):
 
     """
 
-    def __init__(self, model, optimizer, criterion, device=None, memory_cache=True, cache_dir=None):
+    def __init__(self, model, optimizer, device=None, memory_cache=True, cache_dir=None):
         self.model = model
         self.optimizer = optimizer
-        self.criterion = criterion
         self.history = {"lr": [], "loss": []}
         self.best_loss = None
         self.memory_cache = memory_cache
@@ -122,13 +121,13 @@ class LRFinder(object):
         for iteration in tqdm(range(num_iter)):
             # Get a new set of inputs and labels
             try:
-                inputs, labels = next(iterator)
+                inputs, masks, labels = next(iterator)
             except StopIteration:
                 iterator = iter(train_loader)
-                inputs, labels = next(iterator)
+                inputs, masks, labels = next(iterator)
 
             # Train on batch and retrieve loss
-            loss = self._train_batch(inputs, labels)
+            loss = self._train_batch(inputs, masks, labels)
             if val_loader:
                 loss = self._validate(val_loader)
 
@@ -153,18 +152,18 @@ class LRFinder(object):
 
         print("Learning rate search finished. See the graph with {finder_name}.plot()")
 
-    def _train_batch(self, inputs, labels):
+    def _train_batch(self, inputs, masks, labels):
         # Set model to training mode
         self.model.train()
 
         # Move data to the correct device
         inputs = inputs.to(self.device)
+        masks = masks.to(self.device)
         labels = labels.to(self.device)
 
         # Forward pass
         self.optimizer.zero_grad()
-        outputs = self.model(inputs)
-        loss = self.criterion(outputs, labels)
+        loss, logits = self.model(inputs, attention_mask=masks, labels=labels)
 
         # Backward pass
         loss.backward()
@@ -177,14 +176,14 @@ class LRFinder(object):
         running_loss = 0
         self.model.eval()
         with torch.no_grad():
-            for inputs, labels in dataloader:
+            for inputs, masks, labels in dataloader:
                 # Move data to the correct device
                 inputs = inputs.to(self.device)
+                masks = masks.to(self.device)
                 labels = labels.to(self.device)
 
                 # Forward pass and loss computation
-                outputs = self.model(inputs)
-                loss = self.criterion(outputs, labels)
+                loss, logits = self.model(inputs, attention_mask=masks, labels=labels)
                 running_loss += loss.item() * inputs.size(0)
 
         return running_loss / len(dataloader.dataset)
